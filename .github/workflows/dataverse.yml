@@ -63,7 +63,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build the command line
         run: cargo build --release -p soundcraft-cli
-      - name: Test the automation crate (our commands go there)
+      - name: FFmpeg (live mode's input and output; its test runs it)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Test the automation crate (our commands go there) and stream and live modes
         run: cargo test --release -p soundcraft-automation -p soundcraft-stream
       - name: Name it for the Dataverse
         run: |

@@ -5,10 +5,12 @@ fn cfg(format: SampleFormat) -> StreamConfig {
 }
 
 fn sine(frames: usize, ch: usize) -> Vec<f32> {
-    (0..frames).flat_map(|i| {
-        let v = (i as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.5;
-        std::iter::repeat_n(v, ch)
-    }).collect()
+    (0..frames)
+        .flat_map(|i| {
+            let v = (i as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.5;
+            std::iter::repeat_n(v, ch)
+        })
+        .collect()
 }
 
 fn bytes(v: &[f32]) -> Vec<u8> {
@@ -16,7 +18,7 @@ fn bytes(v: &[f32]) -> Vec<u8> {
 }
 
 fn floats(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
 }
 
 fn spec(json: &str) -> ChainSpec {
@@ -45,18 +47,24 @@ fn stream_matches_processing_the_same_blocks_directly() {
     let sp = spec(r#"{"plugins":[{"id":"eq_7band"},{"id":"compressor"}]}"#);
     let input = sine(4_800 + 123, 2);
     // streamed
-    let Ok(mut a) = Chain::new(&sp, &c) else { return assert!(false, "chain") };
+    let Ok(mut a) = Chain::new(&sp, &c) else { panic!("chain") };
     let mut out = Vec::new();
     let _ = run(&mut a, &c, &mut bytes(&input).as_slice(), &mut out, None, |_| {});
     // the same chain, called block by block by hand
-    let Ok(mut b) = Chain::new(&sp, &c) else { return assert!(false, "chain") };
+    let Ok(mut b) = Chain::new(&sp, &c) else { panic!("chain") };
     let mut expect = Vec::new();
     for block in input.chunks(480 * 2) {
         let n = block.len() / 2;
         let mut io = vec![vec![0.0f32; 480]; 2];
-        for i in 0..n { io[0][i] = block[i * 2]; io[1][i] = block[i * 2 + 1]; }
+        for i in 0..n {
+            io[0][i] = block[i * 2];
+            io[1][i] = block[i * 2 + 1];
+        }
         b.process(&mut io, n);
-        for i in 0..n { expect.push(io[0][i]); expect.push(io[1][i]); }
+        for i in 0..n {
+            expect.push(io[0][i]);
+            expect.push(io[1][i]);
+        }
     }
     assert_eq!(floats(&out), expect);
 }
@@ -64,22 +72,30 @@ fn stream_matches_processing_the_same_blocks_directly() {
 #[test]
 fn s16_round_trip_is_within_one_step() {
     let c = cfg(SampleFormat::S16le);
-    let Ok(mut chain) = Chain::new(&spec("[]"), &c) else { return assert!(false, "chain") };
+    let Ok(mut chain) = Chain::new(&spec("[]"), &c) else { panic!("chain") };
     let input: Vec<u8> = sine(960, 2).iter().flat_map(|x| ((x * 32767.0).round() as i16).to_le_bytes()).collect();
     let mut out = Vec::new();
     let _ = run(&mut chain, &c, &mut input.as_slice(), &mut out, None, |_| {});
     assert_eq!(out.len(), input.len());
-    let diff = out.chunks_exact(2).zip(input.chunks_exact(2)).map(|(a, b)| (i16::from_le_bytes([a[0], a[1]]) as i32 - i16::from_le_bytes([b[0], b[1]]) as i32).abs()).max();
+    let diff = out
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .zip(input.as_chunks::<2>().0)
+        .map(|(a, b)| (i16::from_le_bytes(*a) as i32 - i16::from_le_bytes(*b) as i32).abs())
+        .max();
     assert!(diff.unwrap_or(0) <= 1);
 }
 
 #[test]
 fn live_control_changes_a_parameter_and_bypasses() {
     let c = cfg(SampleFormat::F32le);
-    let Ok(mut chain) = Chain::new(&spec(r#"[{"id":"compressor"}]"#), &c) else { return assert!(false, "chain") };
+    let Ok(mut chain) = Chain::new(&spec(r#"[{"id":"compressor"}]"#), &c) else { panic!("chain") };
     let (tx, rx) = std::sync::mpsc::channel();
     for line in [r#"{"set":{"plugin":"compressor","param":"nope","value":1}}"#, r#"{"bypass":{"plugin":0,"on":true}}"#] {
-        if let Some(Ok(ctl)) = parse_control(line) { let _ = tx.send(ctl); }
+        if let Some(Ok(ctl)) = parse_control(line) {
+            let _ = tx.send(ctl);
+        }
     }
     let input = bytes(&sine(960, 2));
     let mut out = Vec::new();
@@ -108,4 +124,32 @@ fn every_chainable_plugin_runs_a_block_without_nan() {
         let _ = run(&mut chain, &c, &mut bytes(&sine(4_800, 2)).as_slice(), &mut out, None, |_| {});
         assert!(floats(&out).iter().all(|v| v.is_finite()), "{}", info.id);
     }
+}
+
+#[test]
+fn live_mode_runs_a_live_input_through_the_chain_to_a_live_output() {
+    // FFmpeg on both sides (the dataverse workflow installs it): one second of a test tone in, the
+    // compressor, and an encoded file out.
+    let dir = std::env::temp_dir().join(format!("soundcraft-live-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("out.mka");
+    let run = LiveRun {
+        chain: r#"[{"id":"compressor"}]"#.into(),
+        input: "sine=frequency=440:sample_rate=48000:duration=1".into(),
+        input_format: Some("lavfi".into()),
+        output: out.to_string_lossy().into_owned(),
+        control: None,
+        sample_rate: 48_000,
+        channels: 2,
+        block: 480,
+        seconds: 0,
+        carry_video: false,
+        audio_bitrate_kbps: None,
+    };
+    let mut log = Vec::new();
+    let stats = live(&run, &mut log).unwrap();
+    assert!(stats.frames >= 47_000 && stats.frames <= 49_000, "{stats:?}");
+    assert!(std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0) > 1000, "the output was written");
+    assert!(String::from_utf8_lossy(&log).contains("\"live\":\"started\""));
+    let _ = std::fs::remove_dir_all(&dir);
 }

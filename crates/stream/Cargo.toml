@@ -1,6 +1,6 @@
 [package]
 name = "soundcraft-stream"
-description = "SoundCraft stream mode: the realtime plugins on a live audio stream (raw PCM in, raw PCM out), with live parameter changes"
+description = "SoundCraft stream and live modes: the realtime plugins on a live audio stream (raw PCM in and out, or a live input to a live output through FFmpeg), with live parameter changes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 soundcraft-dsp.workspace = true
+craft-live.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true

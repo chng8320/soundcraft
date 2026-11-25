@@ -32,3 +32,11 @@ command line, runs the automation tests and attaches the program as `dataverse-s
 
 The ArtCraft name and logos are trademarks, not covered by the code licence; modified versions must not use
 them. Our build is called `dataverse-sound-cli` and is described as "based on SoundCraft by the ArtCraft team".
+
+## Live mode
+
+`soundcraft-cli live --chain CHAIN --in URL --out URL [--control tcp:PORT|FIFO]` runs the realtime plugins on a
+live stream end to end: FFmpeg (through craft-live, from the Dataverse fork of craft-libs, pinned on its
+`dataverse-pins` branch) reads RTMP, SRT, RTSP, HLS, a device (`--in-format alsa`…) or a file, the chain
+processes the audio, and FFmpeg sends it to the output with the input's video copied. The plugins run on the
+CPU. Chains and control lines are those of `stream`.

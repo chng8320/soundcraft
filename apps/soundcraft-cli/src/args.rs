@@ -57,6 +57,7 @@ pub(crate) enum Command {
     Mcp(McpArgs),
     Parity(ParityArgs),
     Stream(StreamArgs),
+    Live(LiveArgs),
     /// List the built-in plugins
     Plugins,
 }
@@ -93,6 +94,50 @@ pub(crate) struct StreamArgs {
     /// A file or named pipe of control lines, read while the stream runs
     #[arg(long, value_name = "FILE|FIFO")]
     pub(crate) control: Option<PathBuf>,
+}
+
+/// Run a chain of the realtime plugins on a live stream end to end: FFmpeg reads the input (RTMP,
+/// SRT, RTSP, HLS, a device or a file), the chain processes the audio, and FFmpeg sends it to the
+/// output with the input's video copied alongside
+///
+/// The chain and the control lines are those of `stream`; --control also takes tcp:PORT. The
+/// plugins run on the CPU. It reports the chain as one JSON line on stderr when it starts and the
+/// totals when it ends. FFmpeg must be installed (or named by CRAFT_LIVE_FFMPEG).
+#[derive(Args)]
+pub(crate) struct LiveArgs {
+    /// The chain: a JSON file, or the JSON itself
+    #[arg(long, value_name = "FILE|JSON")]
+    pub(crate) chain: String,
+    /// The live input: rtmp://, srt://, rtsp://, an .m3u8 URL, a device or a file (read at its own speed)
+    #[arg(long = "in", value_name = "URL|DEVICE|FILE")]
+    pub(crate) input: String,
+    /// FFmpeg's input format for a device: alsa, pulse, dshow, avfoundation…
+    #[arg(long = "in-format", value_name = "FORMAT")]
+    pub(crate) input_format: Option<String>,
+    /// The live output: rtmp(s)://, srt://, rtsp://, a .m3u8 path (HLS) or a file
+    #[arg(long = "out", value_name = "URL|FILE")]
+    pub(crate) output: String,
+    /// Control lines while it runs: tcp:PORT (or tcp:HOST:PORT), or a file or named pipe
+    #[arg(long, value_name = "tcp:PORT|FILE|FIFO")]
+    pub(crate) control: Option<String>,
+    /// Sample rate the chain runs at
+    #[arg(long, default_value_t = 48_000)]
+    pub(crate) rate: u32,
+    /// Channels
+    #[arg(long, default_value_t = 2)]
+    pub(crate) channels: usize,
+    /// Frames per block: 480 is 10 ms at 48 kHz
+    #[arg(long, default_value_t = 480)]
+    pub(crate) block: usize,
+    /// Stop after this many seconds (0: when the input ends)
+    #[arg(long, default_value_t = 0)]
+    pub(crate) seconds: u32,
+    /// Leave the input's video out of the output
+    #[arg(long)]
+    pub(crate) no_video: bool,
+    /// Audio bitrate of the output, kbit/s
+    #[arg(long, value_name = "KBPS")]
+    pub(crate) audio_bitrate: Option<u32>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -302,6 +347,7 @@ impl Command {
             | Self::Mcp(_)
             | Self::Parity(_)
             | Self::Stream(_)
+            | Self::Live(_)
             | Self::Plugins => Ok(()),
         }
     }

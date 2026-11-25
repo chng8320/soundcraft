@@ -9,10 +9,13 @@
 //! the per-block loop allocates nothing once it has started.
 
 use std::io::{self, Read, Write};
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::Receiver;
 
 use serde::{Deserialize, Serialize};
 use soundcraft_dsp::{Plugin, PluginInfo};
+
+mod live;
+pub use live::{LiveRun, live};
 
 /// Sample format of the raw stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -91,10 +94,18 @@ pub enum PluginRef {
 pub enum StreamError {
     UnknownPlugin(String),
     Instrument(String),
-    UnknownParam { plugin: String, param: String },
-    BadParam { plugin: String, param: String },
+    UnknownParam {
+        plugin: String,
+        param: String,
+    },
+    BadParam {
+        plugin: String,
+        param: String,
+    },
     BadConfig(&'static str),
     Io(io::Error),
+    /// The live input or output (FFmpeg) failed.
+    Live(String),
 }
 
 impl std::fmt::Display for StreamError {
@@ -106,6 +117,7 @@ impl std::fmt::Display for StreamError {
             Self::BadParam { plugin, param } => write!(f, "{plugin}.{param} must be a number (or true/false)"),
             Self::BadConfig(why) => write!(f, "{why}"),
             Self::Io(e) => write!(f, "{e}"),
+            Self::Live(m) => write!(f, "{m}"),
         }
     }
 }
@@ -244,16 +256,11 @@ pub fn run(
     let mut stats = StreamStats::default();
     loop {
         if let Some(rx) = controls {
-            loop {
-                match rx.try_recv() {
-                    Ok(c) => {
-                        stats.controls += 1;
-                        if let Err(e) = chain.apply(&c) {
-                            stats.control_errors += 1;
-                            on_control_error(&e);
-                        }
-                    }
-                    Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+            while let Ok(c) = rx.try_recv() {
+                stats.controls += 1;
+                if let Err(e) = chain.apply(&c) {
+                    stats.control_errors += 1;
+                    on_control_error(&e);
                 }
             }
         }
@@ -346,12 +353,15 @@ pub struct ServeOptions {
 /// Runs a stream on stdin and stdout: reports the chain (plugins and latency) as one JSON line on
 /// `log`, applies control lines as they come, and reports the totals when the input ends.
 pub fn serve(opts: &ServeOptions, log: &mut dyn Write) -> Result<StreamStats, StreamError> {
-    let text = if opts.chain.trim_start().starts_with(['[', '{']) { opts.chain.clone() } else { std::fs::read_to_string(&opts.chain)? };
-    let spec: ChainSpec = serde_json::from_str(&text).map_err(|e| StreamError::Io(io::Error::new(io::ErrorKind::InvalidData, format!("chain: {e}"))))?;
+    let spec = load_chain(&opts.chain)?;
     let mut chain = Chain::new(&spec, &opts.config)?;
     let ids: Vec<&str> = spec.items().iter().map(|i| i.id.as_str()).collect();
-    let _ = writeln!(log, "{}", serde_json::json!({"stream": "started", "plugins": ids, "latency_samples": chain.latency(),
-        "latency_ms": chain.latency() as f64 * 1000.0 / f64::from(opts.config.sample_rate), "block": opts.config.block}));
+    let _ = writeln!(
+        log,
+        "{}",
+        serde_json::json!({"stream": "started", "plugins": ids, "latency_samples": chain.latency(),
+        "latency_ms": chain.latency() as f64 * 1000.0 / f64::from(opts.config.sample_rate), "block": opts.config.block})
+    );
     let rx = opts.control.as_ref().map(|path| {
         let (tx, rx) = std::sync::mpsc::channel();
         let path = path.clone();
@@ -382,6 +392,12 @@ pub fn serve(opts: &ServeOptions, log: &mut dyn Write) -> Result<StreamStats, St
     }
     let _ = writeln!(log, "{}", serde_json::json!({"stream": "ended", "stats": stats}));
     Ok(stats)
+}
+
+/// A chain from a JSON file's path or the JSON itself.
+pub fn load_chain(chain: &str) -> Result<ChainSpec, StreamError> {
+    let text = if chain.trim_start().starts_with(['[', '{']) { chain.to_string() } else { std::fs::read_to_string(chain)? };
+    serde_json::from_str(&text).map_err(|e| StreamError::Io(io::Error::new(io::ErrorKind::InvalidData, format!("chain: {e}"))))
 }
 
 /// The chainable plugins and their parameters, as JSON (`soundcraft-cli stream --list`).

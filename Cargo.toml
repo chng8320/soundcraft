@@ -21,6 +21,8 @@ soundcraft-midi = { path = "crates/midi" }
 soundcraft-video = { path = "crates/video" }
 soundcraft-dsp = { path = "crates/dsp" }
 soundcraft-stream = { path = "crates/stream" }
+# Live input and output (FFmpeg), from the Dataverse fork of craft-libs; the dataverse-pins branch keeps this commit.
+craft-live = { git = "https://github.com/chng8320/craft-libs", rev = "ec3d11034d449c1e6229e1a75a40dfb60beb3728", default-features = false }
 soundcraft-clap-host = { path = "crates/clap-host" }
 soundcraft-vst3-host = { path = "crates/vst3-host" }
 soundcraft-au-host = { path = "crates/au-host" }

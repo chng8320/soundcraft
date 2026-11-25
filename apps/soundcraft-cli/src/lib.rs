@@ -14,6 +14,7 @@ mod info;
 pub mod logger;
 mod mcp;
 mod session;
+mod stream;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -28,6 +29,7 @@ use error::CliError;
 use info::info;
 use mcp::mcp;
 use session::{run_cmds, script};
+use stream::stream;
 
 /// The command line's clap definition.
 pub fn command() -> clap::Command {
@@ -73,6 +75,7 @@ fn dispatch(command: Command, out: &mut dyn Write, err: &mut dyn Write) -> Resul
         Command::App(a) => app(&a, out)?,
         Command::Mcp(a) => mcp(&a, err)?,
         Command::Parity(a) => parity(&a, out)?,
+        Command::Stream(a) => stream(&a, out, err)?,
         Command::Plugins => {
             for p in soundcraft_dsp::plugins() {
                 outln!(out, "{:<20} {:<22} {:?}{}", p.id, p.name, p.category, if p.is_instrument { " (instrument)" } else { "" });

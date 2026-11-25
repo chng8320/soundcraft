@@ -56,8 +56,58 @@ pub(crate) enum Command {
     App(AppArgs),
     Mcp(McpArgs),
     Parity(ParityArgs),
+    Stream(StreamArgs),
     /// List the built-in plugins
     Plugins,
+}
+
+/// Run a chain of the realtime plugins on a live audio stream: raw PCM in on stdin, processed PCM
+/// out on stdout, block by block (for FFmpeg, GStreamer or a LiveKit agent on either side)
+///
+/// The chain is the plugins' ids and parameters, as `soundcraft-cli plugins` lists them:
+/// `[{"id":"eq_7band","params":{...}},{"id":"compressor"}]`. Parameters change while it runs
+/// through --control, a file or named pipe (FIFO) of JSON lines such as
+/// `{"set":{"plugin":"compressor","param":"threshold","value":-24}}`,
+/// `{"bypass":{"plugin":0,"on":true}}` or `{"reset":true}`. It reports the chain and its latency
+/// as one JSON line on stderr when it starts, and the totals when the input ends.
+#[derive(Args)]
+pub(crate) struct StreamArgs {
+    /// The chain: a JSON file, or the JSON itself
+    #[arg(long, value_name = "FILE|JSON", required_unless_present = "list")]
+    pub(crate) chain: Option<String>,
+    /// Print the plugins a stream can use, with their parameters, as JSON, and exit
+    #[arg(long)]
+    pub(crate) list: bool,
+    /// Sample rate of the stream
+    #[arg(long, default_value_t = 48_000)]
+    pub(crate) rate: u32,
+    /// Channels (interleaved)
+    #[arg(long, default_value_t = 2)]
+    pub(crate) channels: usize,
+    /// Frames per block: 480 is 10 ms at 48 kHz
+    #[arg(long, default_value_t = 480)]
+    pub(crate) block: usize,
+    /// Raw sample format: f32le (FFmpeg -f f32le) or s16le (-f s16le)
+    #[arg(long, value_enum, default_value = "f32le")]
+    pub(crate) format: StreamFormatArg,
+    /// A file or named pipe of control lines, read while the stream runs
+    #[arg(long, value_name = "FILE|FIFO")]
+    pub(crate) control: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub(crate) enum StreamFormatArg {
+    F32le,
+    S16le,
+}
+
+impl From<StreamFormatArg> for soundcraft_stream::SampleFormat {
+    fn from(f: StreamFormatArg) -> Self {
+        match f {
+            StreamFormatArg::F32le => Self::F32le,
+            StreamFormatArg::S16le => Self::S16le,
+        }
+    }
 }
 
 /// Print an audio file's format as JSON, or a .scraft session's summary
@@ -251,6 +301,7 @@ impl Command {
             | Self::App(_)
             | Self::Mcp(_)
             | Self::Parity(_)
+            | Self::Stream(_)
             | Self::Plugins => Ok(()),
         }
     }

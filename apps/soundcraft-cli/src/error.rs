@@ -36,6 +36,8 @@ pub(crate) enum CliError {
     Roots(#[from] RootError),
     #[error(transparent)]
     Serve(std::io::Error),
+    #[error("stream: {0}")]
+    Stream(soundcraft_stream::StreamError),
 }
 
 /// A path as the text the engine's commands take.

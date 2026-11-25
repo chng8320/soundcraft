@@ -64,7 +64,7 @@ jobs:
       - name: Build the command line
         run: cargo build --release -p soundcraft-cli
       - name: Test the automation crate (our commands go there)
-        run: cargo test --release -p soundcraft-automation
+        run: cargo test --release -p soundcraft-automation -p soundcraft-stream
       - name: Name it for the Dataverse
         run: |
           mkdir -p out

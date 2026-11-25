@@ -5007,6 +5007,7 @@ dependencies = [
  "soundcraft-automation",
  "soundcraft-dsp",
  "soundcraft-engine",
+ "soundcraft-stream",
  "thiserror 2.0.21",
 ]
 
@@ -5108,6 +5109,16 @@ dependencies = [
  "soundcraft-mix",
  "soundcraft-model",
  "soundcraft-time",
+]
+
+[[package]]
+name = "soundcraft-stream"
+version = "0.20.1"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "soundcraft-dsp",
 ]
 
 [[package]]
